@@ -25,13 +25,13 @@ STRUCTURE_RESOLUTIONS = (64, 128, 192)
 OUTPUT_RESOLUTIONS = (512, 1024, 1536)
 """Mesh resolution produced by each rung, parallel to :data:`STRUCTURE_RESOLUTIONS`."""
 
-PASS_BUDGETS = (80_000, 90_000, 110_000)
+#PASS_BUDGETS = (200_000, 200_000, 200_000)
 """Occupied-voxel budget adaptive voxelization targets at each rung."""
 
 TARGET_FACE_COUNTS = (1_000_000, 1_000_000, 2_000_000)
 """Face count the final mesh is simplified to, per :data:`OUTPUT_RESOLUTIONS` entry."""
 
-DECODE_FEATURE_CEILING = 12_000_000
+DECODE_FEATURE_CEILING = 15_000_000
 """Decoded feature rows above which a further pass would exhaust device memory."""
 
 COMPONENT_FACE_RATIO = 0.005
@@ -245,9 +245,10 @@ class Sparc3DPipeline:
         image: Any,
         coarse_mesh: Any,
         resolution: int = 1024,
-        num_inference_steps: int = 25,
+        num_inference_steps: int = 12,
         generator: torch.Generator | None = None,
         seed: int | None = None,
+        max_tokens: int = 200000
     ) -> Sparc3DPipelineOutput:
         """Refine an in-memory coarse mesh through the requested resolution.
 
@@ -272,7 +273,8 @@ class Sparc3DPipeline:
         prepared = prepare_image(image)
         mesh = validate_mesh(coarse_mesh)
         condition = self.conditioner(prepared).to(self._device)
-        coords = self._adaptive_voxelize(mesh, 64, PASS_BUDGETS[0])
+        coords = self._adaptive_voxelize(mesh, 64, max_tokens)
+        
         return self._run_refinement(
             condition,
             coords,
@@ -280,6 +282,7 @@ class Sparc3DPipeline:
             resolution=resolution,
             num_inference_steps=num_inference_steps,
             generator=local_generator,
+            max_tokens=max_tokens
         )
 
     @torch.inference_mode()
@@ -316,6 +319,7 @@ class Sparc3DPipeline:
 
         prepared = prepare_image(image)
         condition = self.conditioner(prepared).to(self._device)
+        
         return self._run_refinement(
             condition,
             coords,
@@ -334,6 +338,7 @@ class Sparc3DPipeline:
         resolution: int,
         num_inference_steps: int,
         generator: torch.Generator,
+        max_tokens: int
     ) -> Sparc3DPipelineOutput:
         start_index = STRUCTURE_RESOLUTIONS.index(structure_resolution)
         target_index = OUTPUT_RESOLUTIONS.index(resolution)
@@ -371,7 +376,7 @@ class Sparc3DPipeline:
                 coords = self._adaptive_voxelize(
                     mesh,
                     STRUCTURE_RESOLUTIONS[next_index],
-                    PASS_BUDGETS[next_index],
+                    max_tokens,
                 )
 
         if mesh is None:
